@@ -6,6 +6,17 @@ import matplotlib.pyplot as plt
 import os
 from torchvision.models.optical_flow import raft_large
 import wandb
+
+from mask_util.hdr_mask import get_diff_mask
+
+def prepare_masks(imgs_ldr,device):
+    img0 = imgs_ldr[0]
+    img1 = imgs_ldr[1]
+    img2 = imgs_ldr[2]
+    mask0 = get_diff_mask(img0,img1).to(device)
+    mask2 = get_diff_mask(img2,img1).to(device)
+    return mask0,mask2
+
 def prepare_input_images(imgs_lin, imgs_ldr, device):
     img0_c = torch.cat([imgs_lin[0], imgs_ldr[0]], 1).to(device)
     img1_c = torch.cat([imgs_lin[1], imgs_ldr[1]], 1).to(device) 
@@ -90,24 +101,18 @@ def visualize_weights(w_low, w_mid, w_high):
     return vis
 
 
-# 将多张LDR图像合并成HDR图像
 def merge_hdr(ldr_imgs, lin_imgs, mask0, mask2):
     sum_img = torch.zeros_like(ldr_imgs[1])
     sum_w = torch.zeros_like(ldr_imgs[1])
-    w_low = weight_3expo_low_tog17(ldr_imgs[1])
-    w_mid = weight_3expo_mid_tog17(ldr_imgs[1])
-    w_high = weight_3expo_high_tog17(ldr_imgs[1])
+    w_low = weight_3expo_low_tog17(ldr_imgs[1]) * mask0
+    w_mid = weight_3expo_mid_tog17(ldr_imgs[1]) + weight_3expo_low_tog17(ldr_imgs[1]) * (1.0 - mask0) + weight_3expo_high_tog17(ldr_imgs[1]) * (1.0 - mask2)
+    w_high = weight_3expo_high_tog17(ldr_imgs[1]) * mask2
     w_list = [w_low, w_mid, w_high]
-    w_low = w_low * mask0
-    w_mid = w_mid * mask0 + w_low * (1.0 - mask0) + w_high * (1.0 - mask2)
-    w_high = w_high * mask2
-    weight_vis = visualize_weights(w_low, w_mid, w_high)
     for i in range(len(ldr_imgs)):
         sum_w += w_list[i]
-        sum_img += (w_list[i] * lin_imgs[i])
+        sum_img += w_list[i] * lin_imgs[i]
     hdr_img = sum_img / (sum_w + 1e-9)
-    return hdr_img,weight_vis
-
+    return hdr_img
 # 对HDR图像进行范围压缩
 def range_compressor(hdr_img, mu=5000):
     return torch.log(1 + mu * hdr_img) / math.log(1 + mu)

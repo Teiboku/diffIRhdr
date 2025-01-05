@@ -30,14 +30,26 @@ from inpainting.saicinpainting.utils import register_debug_signal_handlers
 
 LOGGER = logging.getLogger(__name__)
 
-
 def load_image(fname, mode='RGB', return_orig=False):
-    img = np.asarray(cv2.imread(fname, -1)[:, :, ::-1])
-    img = (img / 2 ** 16).clip(0, 1).astype(np.float32)
+    # 读取PNG图像
+    img = cv2.imread(fname)
+    if img is None:
+        raise ValueError(f"Failed to load image: {fname}")
+    
+    # BGR转RGB
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    
+    # 归一化到[0,1]
+    img = img.astype(np.float32) / 255.0
+    
+    # HWC转CHW格式
     if img.ndim == 3:
-        img = np.transpose(img, (2, 1, 0))  # HWC to CHW format
-    img = torch.from_numpy(img)[None, ...]  # Add batch dimension
-    print(img.shape)
+        img = np.transpose(img, (2, 0, 1))
+        
+    # 添加batch维度
+    img = torch.from_numpy(img)[None, ...]
+    
+    print(f"Loaded image shape: {img.shape}")
     return img
 
 
@@ -70,53 +82,66 @@ def get_inpaint(image: torch.Tensor, mask: torch.Tensor,unpad_to_size: tuple = N
         batch = move_to_device(batch, device)
         batch = model(batch)   
         cur_res = batch[predict_config.out_key][0]
-        
-        
         if unpad_to_size is not None:
             orig_height, orig_width = unpad_to_size
             cur_res = cur_res[:orig_height, :orig_width]
         # Save the inpainted result
-        cur_res = cur_res.permute(2, 1, 0).cpu().numpy()  # Convert from CHW to HWC format
+        cur_res = cur_res.permute(1, 2, 0)  # Convert from CHW (3,1000,1504) to HWC (1000,1504,3) format
+        cur_res = cur_res.cpu().numpy()
         cur_res = (cur_res * 255).clip(0, 255).astype(np.uint8)
+        print(f'cur_res: {cur_res.shape}')
         cv2.imwrite('inpainted_result.png', cv2.cvtColor(cur_res, cv2.COLOR_RGB2BGR))
         return cur_res
     
 if __name__ == '__main__':
     # Load sample image from Hugging Face
-    image_path = "/root/code/hdr/SIGGRAPH17_HDR_Trainingset/Training/002/262A0967.tif"
+    image_path = "/root/code/hdr/SAFNet/wandb/latest-run/files/media/images/val_pred_8_16_a968a3c0cefb11819762.png"
+    gt_path = "/root/code/hdr/SAFNet/wandb/latest-run/files/media/images/val_gt_8_16_b59f55abd6aa5e38f192.png"
     img = load_image(image_path)
-    # Generate random mask
-    # Create mask with same shape as input image
-    mask = torch.zeros(1, 1, img.shape[2], img.shape[3]).cuda()
-    print(mask.shape)
-    # Randomly generate some masked regions
-    num_regions = np.random.randint(3, 8)  # Generate 3-7 random regions
-    for _ in range(num_regions):
-        # Random rectangle parameters
-        h, w = img.shape[2], img.shape[3]
-        x1 = np.random.randint(0, w-50)  # Ensure minimum 50px width
-        y1 = np.random.randint(0, h-50)  # Ensure minimum 50px height
-        width = np.random.randint(50, min(200, w-x1))  # Random width between 50-200px
-        height = np.random.randint(50, min(200, h-y1))  # Random height between 50-200px
-        mask[0, 0, y1:y1+height, x1:x1+width] = 1
-    # Save mask image
-    mask_np = mask[0,0].cpu().numpy() * 255
-    mask_np = mask_np.transpose()
-    mask_np = mask_np.astype(np.uint8)
-    cv2.imwrite("generated_mask.png", mask_np)
- 
-    # Create colored visualization of inpainted region
-    mask_vis = np.zeros((mask_np.shape[0], mask_np.shape[1], 3), dtype=np.uint8)
-    mask_vis[mask_np > 0] = [0, 0, 255]  # Set masked regions to red
-    cv2.imwrite("inpaint_region_vis.png", mask_vis)
-    # Pad image and mask to be divisible by 8
-    def pad_to_multiple_of_8(tensor):
-        h, w = tensor.shape[-2:]
-        pad_h = (8 - h % 8) % 8
-        pad_w = (8 - w % 8) % 8
-        if pad_h > 0 or pad_w > 0:
-            return F.pad(tensor, (0, pad_w, 0, pad_h), mode='reflect')
-        return tensor
-    img =  pad_to_multiple_of_8(img)
-    mask = pad_to_multiple_of_8(mask)
-    get_inpaint(img, mask)
+    gt = load_image(gt_path)
+    
+    # Pad dimensions to be divisible by 8
+    h, w = img.shape[2], img.shape[3]
+    new_h = ((h + 7) // 8) * 8  # Round up to nearest multiple of 8
+    new_w = ((w + 7) // 8) * 8
+    
+    pad_h = new_h - h
+    pad_w = new_w - w
+    
+    # Pad the images
+    img = F.pad(img, (0, pad_w, 0, pad_h))
+    gt = F.pad(gt, (0, pad_w, 0, pad_h))
+    mask = torch.zeros(1, 1, new_h, new_w)
+    # Calculate absolute difference between gt and img
+    diff = torch.abs(gt - img)
+    
+    # Calculate mean difference across color channels
+    mean_diff = torch.mean(diff, dim=1, keepdim=True)
+    # Calculate threshold as a percentile of the differences
+    threshold = torch.quantile(mean_diff, 0.95)  # Top 20% of differences will be masked
+    mask = (mean_diff > threshold).float()
+    # Save mask heatmap
+    mask_np = mask[0,0].cpu().numpy()  # Convert to numpy array and remove batch/channel dimensions
+    plt.figure(figsize=(10,10))
+    plt.imshow(mask_np, cmap='hot')
+    plt.colorbar()
+    plt.savefig('mask_heatmap.png')
+    plt.close()
+    
+    res = get_inpaint(img, mask)
+    # Convert res back to tensor format and normalize to [0,1]
+    res_tensor = torch.from_numpy(res).permute(2,0,1).unsqueeze(0).float() / 255.0
+    
+    # Calculate MSE loss between res and gt
+    mse_res = F.mse_loss(res_tensor, gt)
+    # Calculate MSE loss between img and gt 
+    mse_img = F.mse_loss(img, gt)
+    
+    # Calculate PSNR
+    psnr_res = -10 * torch.log10(mse_res)
+    psnr_img = -10 * torch.log10(mse_img)
+    
+    print(f'MSE loss between inpainted result and ground truth: {mse_res:.6f}')
+    print(f'MSE loss between original image and ground truth: {mse_img:.6f}')
+    print(f'PSNR between inpainted result and ground truth: {psnr_res:.2f} dB')
+    print(f'PSNR between original image and ground truth: {psnr_img:.2f} dB')

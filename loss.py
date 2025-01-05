@@ -24,13 +24,10 @@ def census_transform(img, window_size=7):
     for i in range(window_size):
         for j in range(window_size):
             if i == pad_size and j == pad_size:
-                continue  # 跳过中心像素
-            # 比较邻域像素与中心像素
+                continue 
             neighbor = padded[:, :, i:i+H, j:j+W]
-            # 对每个通道分别计算census
             census[:, idx*C:(idx+1)*C] = (neighbor < center_pixels).float()
             idx += 1
-            
     return census
 
 def census_loss(pred, target, window_size=7):
