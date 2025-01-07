@@ -134,7 +134,10 @@ def detect_exposure_regions(img_tensor, percentile=0.05):
     
     return under_exposed, over_exposed
 
-def get_diff_mask(source, reference,kernel_size=17,threshold=0.93,eroded_kernel_size=11,dilated_kernel_size=13,percentile=0.03):
+def get_diff_mask(source, reference,
+                          kernel_size=9,threshold=0.9,
+                          eroded_kernel_size=11,
+                          dilated_kernel_size=11,percentile=0.04):
     source = average_filter(source,kernel_size=kernel_size)
     reference = average_filter(reference,kernel_size=kernel_size)
     
@@ -143,11 +146,13 @@ def get_diff_mask(source, reference,kernel_size=17,threshold=0.93,eroded_kernel_
     diff = torch.abs(source - reference)
     
     diff_mean = diff.mean(dim=1, keepdim=True) # [B,1,H,W]
-    diff_mean = diff_mean * (1-under_exposed.unsqueeze(1)) * (1-over_exposed.unsqueeze(1))
+    diff_mean = diff_mean 
     # Find threshold for top percentage
     threshold = torch.quantile(diff_mean.flatten(), threshold)
     
     # Create binary mask for differences above threshold
     mask = (diff_mean > threshold).float()
+    # Combine mask with under and over exposed regions using logical OR
+    mask = torch.clamp(mask + under_exposed.unsqueeze(1) + over_exposed.unsqueeze(1), 0, 1)
     mask = morphological_opening(mask, eroded_kernel_size=eroded_kernel_size, dilated_kernel_size=dilated_kernel_size)
     return mask[:,0:1] # Only return single channel [B,1,H,W]

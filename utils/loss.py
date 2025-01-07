@@ -1,5 +1,20 @@
 import torch
 import torch.nn.functional as F
+import torchvision.models as models
+import torch.nn as nn
+    
+# 在文件顶部定义全局 VGG 模型
+_vgg = None
+
+def _get_vgg():
+    global _vgg
+    if _vgg is None:
+        _vgg = models.vgg16(pretrained=True).features.eval().cuda()
+        # 冻结VGG参数
+        for param in _vgg.parameters():
+            param.requires_grad = False
+    return _vgg
+
 def census_transform(img, window_size=7):
     """
     Census 变换
@@ -45,4 +60,31 @@ def census_loss(pred, target, window_size=7):
     # 计算Hamming距离
     loss = torch.abs(pred_census - target_census).mean()
     
+    return loss
+
+def perceptual_loss(pred, target):
+    """
+    使用VGG16计算感知损失
+    Args:
+        pred: 预测图像 [B,C,H,W]
+        target: 目标图像 [B,C,H,W]
+    Returns:
+        感知损失值
+    """
+    # 获取共享的VGG模型实例
+    vgg = _get_vgg()
+    
+    # 选择用于提取特征的层
+    feature_layers = [3, 8, 15, 22]  # relu1_2, relu2_2, relu3_3, relu4_3
+    
+    # 提取特征并计算损失
+    loss = 0
+    x = pred
+    y = target
+    for i in range(max(feature_layers) + 1):
+        x = vgg[i](x)
+        y = vgg[i](y)
+        if i in feature_layers:
+            loss += F.l1_loss(x, y)
+            
     return loss

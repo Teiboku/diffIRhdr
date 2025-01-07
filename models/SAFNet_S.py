@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utils import warp, merge_hdr
+from SAFNet.utils.utils import warp, merge_hdr
 
 
 div_size = 16

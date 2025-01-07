@@ -82,13 +82,11 @@ class NAFBlock(nn.Module):
 
 class NAFNet(nn.Module):
 
-    def __init__(self, img_channel=18, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[]):
+    def __init__(self, img_channel=18, width=64, middle_blk_num=1,
+                 enc_blk_nums=[1, 1, 1, 28], dec_blk_nums=[1, 1, 1, 1]):
         super().__init__()
 
-        self.intro = nn.ModuleList([
-            nn.Conv2d(in_channels=img_channel, out_channels=width*2, kernel_size=3, padding=1, stride=1, groups=1, bias=True),
-            nn.Conv2d(in_channels=width*2, out_channels=width, kernel_size=3, padding=1, stride=1, groups=1, bias=True)
-        ])
+        self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1, stride=1, groups=1, bias=True)
         self.ending = nn.Conv2d(in_channels=width, out_channels=3, kernel_size=3, padding=1, stride=1, groups=1,
                               bias=True)
 
@@ -131,16 +129,15 @@ class NAFNet(nn.Module):
 
         self.padder_size = 2 ** len(self.encoders)
 
-    def forward(self, img0_c, img1_c, img2_c, mask0 , mask2):
-        
-        inp = torch.cat([img0_c, img1_c, img2_c], dim=1)
+    def forward(self,inp):
         
         B, C, H, W = inp.shape
+        origin = inp[:,9:12,:,:]
         inp = self.check_image_size(inp)
-
-        x = self.intro[0](inp)
-        x = self.intro[1](x)
-
+ 
+        
+        x = self.intro(inp)
+        
         encs = []
 
         for encoder, down in zip(self.encoders, self.downs):
@@ -156,9 +153,10 @@ class NAFNet(nn.Module):
             x = decoder(x)
 
         x = self.ending(x)
-        x = img1_c[:, 3:, :, :] + x
+        x = x[:, :, :H, :W]
 
-        return x[:, :, :H, :W]
+        x = origin + x
+        return torch.sigmoid(x)
 
     def check_image_size(self, x):
         _, _, h, w = x.size()
@@ -180,29 +178,4 @@ class NAFNetLocal(Local_Base, NAFNet):
             self.convert(base_size=base_size, train_size=train_size, fast_imp=fast_imp)
 
 
-if __name__ == '__main__':
-    img_channel = 3
-    width = 32
 
-    # enc_blks = [2, 2, 4, 8]
-    # middle_blk_num = 12
-    # dec_blks = [2, 2, 2, 2]
-
-    enc_blks = [1, 1, 1, 28]
-    middle_blk_num = 1
-    dec_blks = [1, 1, 1, 1]
-    
-    net = NAFNet(img_channel=img_channel, width=width, middle_blk_num=middle_blk_num,
-                      enc_blk_nums=enc_blks, dec_blk_nums=dec_blks)
-
-
-    inp_shape = (3, 256, 256)
-
-    from ptflops import get_model_complexity_info
-
-    macs, params = get_model_complexity_info(net, inp_shape, verbose=False, print_per_layer_stat=False)
-
-    params = float(params[:-3])
-    macs = float(macs[:-4])
-
-    print(macs, params)

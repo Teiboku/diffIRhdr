@@ -7,6 +7,8 @@ import torch
 from torch.utils.data import Dataset
 import torchvision.transforms.functional as TF
 
+#from utils.mask_util.hdr_mask import get_diff_mask
+
 def read_ldr(img_path):
     img = np.asarray(cv2.imread(img_path, -1)[:, :, ::-1])
     img = (img / 2 ** 16).clip(0, 1).astype(np.float32)
@@ -22,7 +24,7 @@ def read_expos(txt_path):
 
 
 class HDRDataset(Dataset):
-    def __init__(self, root_dir, transform=None, is_train=True):
+    def __init__(self, root_dir, transform=None, is_train=True, patch_size=None):
         """
         Args:
             root_dir (str): Dataset root directory path
@@ -32,7 +34,10 @@ class HDRDataset(Dataset):
         self.root_dir = root_dir
         self.transform = transform
         self.is_train = is_train
-        
+        if is_train:
+            self.patch_size = patch_size
+        else:
+            self.patch_size = None
         # Set data subdirectory
         self.data_dir = os.path.join(root_dir, 'train' if is_train else 'test')
         
@@ -68,6 +73,23 @@ class HDRDataset(Dataset):
         img0 = read_ldr(self.img0_list[idx])
         img1 = read_ldr(self.img1_list[idx])
         img2 = read_ldr(self.img2_list[idx])
+        """
+        # Convert images to CUDA tensors
+        img0_tensor = torch.from_numpy(img0).permute(2, 0, 1).unsqueeze(0).cuda()
+        img1_tensor = torch.from_numpy(img1).permute(2, 0, 1).unsqueeze(0).cuda()
+        img2_tensor = torch.from_numpy(img2).permute(2, 0, 1).unsqueeze(0).cuda()
+        
+        diff_mask_0 = get_diff_mask(img0_tensor, img1_tensor)
+        diff_mask_1 = get_diff_mask(img2_tensor, img1_tensor)
+        
+        # Save masks to same directory as input images
+        mask_dir = os.path.dirname(self.img0_list[idx])
+        mask0_path = os.path.join(mask_dir, f'mask0.png')
+        mask1_path = os.path.join(mask_dir, f'mask1.png')
+        
+        cv2.imwrite(mask0_path, (diff_mask_0.cpu().numpy()[0,0] * 255).astype(np.uint8))
+        cv2.imwrite(mask1_path, (diff_mask_1.cpu().numpy()[0,0] * 255).astype(np.uint8))
+        """
         gt = read_hdr(self.gt_list[idx])
         expos = read_expos(self.expos_list[idx])
         imgs_ldr = [img0.copy(), img1.copy(), img2.copy()]
@@ -80,16 +102,16 @@ class HDRDataset(Dataset):
         gt = np.transpose(gt.copy(), (2, 0, 1))
 
         # Apply transforms if specified
-        if self.is_train:
+        if self.patch_size is not None:
             # 为整个样本生成相同的随机参数
             h, w = imgs_lin[0].shape[1:]
-            top = random.randint(0, h - 512)
-            left = random.randint(0, w - 512)
+            top = random.randint(0, h - self.patch_size)
+            left = random.randint(0, w - self.patch_size)
             # 对所有图像应用相同的变换
             for i in range(3):
                 # Convert numpy arrays to PIL Images for transforms
-                imgs_lin[i] = TF.crop(torch.from_numpy(imgs_lin[i]), top, left, 512, 512).numpy()
-                imgs_ldr[i] = TF.crop(torch.from_numpy(imgs_ldr[i]), top, left, 512, 512).numpy()
-            gt = TF.crop(torch.from_numpy(gt), top, left, 512, 512).numpy()
+                imgs_lin[i] = TF.crop(torch.from_numpy(imgs_lin[i]), top, left, self.patch_size, self.patch_size).numpy()
+                imgs_ldr[i] = TF.crop(torch.from_numpy(imgs_ldr[i]), top, left, self.patch_size, self.patch_size).numpy()
+            gt = TF.crop(torch.from_numpy(gt), top, left, self.patch_size, self.patch_size).numpy()
   
         return imgs_lin, imgs_ldr, expos, gt

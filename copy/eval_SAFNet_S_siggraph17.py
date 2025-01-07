@@ -8,8 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from models.SAFNet_S import SAFNet_S
-from datasets import SIGGRAPH17_Test_Dataset
-from utils import range_compressor, calculate_psnr
+from SAFNet.dataset.datasets import SIGGRAPH17_Test_Dataset
+from SAFNet.utils.utils import range_compressor, calculate_psnr
 
 
 dataset_eval = SIGGRAPH17_Test_Dataset(dataset_dir='/Datasets/SIGGRAPH17_Dataset/Test')

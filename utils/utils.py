@@ -7,7 +7,7 @@ import os
 from torchvision.models.optical_flow import raft_large
 import wandb
 
-from mask_util.hdr_mask import get_diff_mask
+from utils.mask_util.hdr_mask import get_diff_mask
 
 def prepare_masks(imgs_ldr,device):
     img0 = imgs_ldr[0]
@@ -115,6 +115,8 @@ def merge_hdr(ldr_imgs, lin_imgs, mask0, mask2):
     return hdr_img
 # 对HDR图像进行范围压缩
 def range_compressor(hdr_img, mu=5000):
+    # Clamp negative values to 0 to avoid invalid log inputs
+
     return torch.log(1 + mu * hdr_img) / math.log(1 + mu)
 
 # 计算两张图像之间的PSNR值

@@ -31,3 +31,4 @@ output/
 *.cmd
 *.ps1
 *.ckpt
+img_hdr_pred_siggraph17/
