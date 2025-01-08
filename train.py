@@ -13,7 +13,7 @@ def train_one_epoch(model, train_loader, optimizer,scheduler, device, epoch, con
         
 
         if config.model['name'] == "SAFNet":
-            img_hdr_m = model(img0_c, img1_c, img2_c, refine=False)
+            img_hdr_m = model(img0_c, img1_c, img2_c)
         else:
             img_hdr_m = model(torch.cat([img0_c, img1_c, img2_c], dim=1))
         img_hdr_gt = img_hdr_gt.to(device)
@@ -43,7 +43,7 @@ def validate_and_save(model, val_loader, device, epoch, config):
             img0_c, img1_c, img2_c = prepare_input_images(imgs_lin, imgs_ldr, device)
             img_hdr_gt = img_hdr_gt.to(device)   
             if model_name == "SAFNet":
-                img_hdr_m = model(img0_c, img1_c, img2_c, refine=False)
+                img_hdr_m = model(img0_c, img1_c, img2_c)
             else:
                 img_hdr_m = model(torch.cat([img0_c, img1_c, img2_c], dim=1))
             psnr = calculate_psnr(img_hdr_m.to('cuda'), img_hdr_gt)

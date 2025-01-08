@@ -209,20 +209,20 @@ class RefineNet(nn.Module):
         self.conv0 = nn.Sequential(convrelu(6, 20), convrelu(20, 20))
         self.conv1 = nn.Sequential(convrelu(6, 40), convrelu(40, 40))
         self.conv2 = nn.Sequential(convrelu(6, 20), convrelu(20, 20))
-        self.resblock1 = ResBlock(82, 1)
-        self.resblock2 = ResBlock(82, 2)
-        self.resblock3 = ResBlock(82, 4)
-        self.resblock4 = ResBlock(82, 2)
-        self.resblock5 = ResBlock(82, 1)
-        self.conv3 = nn.Conv2d(82, 3, kernel_size=3, stride=1, padding=1, dilation=1, bias=True)
+        self.resblock1 = ResBlock(80, 1)
+        self.resblock2 = ResBlock(80, 2)
+        self.resblock3 = ResBlock(80, 4)
+        self.resblock4 = ResBlock(80, 2)
+        self.resblock5 = ResBlock(80, 1)
+        self.conv3 = nn.Conv2d(80, 3, kernel_size=3, stride=1, padding=1, dilation=1, bias=True)
 
-    def forward(self, img0_c, img1_c, img2_c, mask0, mask2):
+    def forward(self, img0_c, img1_c, img2_c):
         img = img1_c[:,3:6,:,:]
         feat0 = self.conv0(img0_c)
         feat1 = self.conv1(img1_c)
         feat2 = self.conv2(img2_c)
 
-        feat = torch.cat([feat0, feat1, feat2,mask0,mask2], 1)
+        feat = torch.cat([feat0, feat1, feat2], 1)
         feat = self.resblock1(feat)
         feat = self.resblock2(feat)
         feat = self.resblock3(feat)
@@ -236,8 +236,6 @@ class RefineNet(nn.Module):
 class SAFNet(nn.Module):
     def __init__(self):
         super(SAFNet, self).__init__()
-        self.encoder = Encoder()
-        self.decoder = Decoder()
         self.refinenet = RefineNet()
 
     def forward_flow_mask(self, img0_c, img1_c, img2_c, scale_factor=0.5):
@@ -273,14 +271,8 @@ class SAFNet(nn.Module):
 
         return up_mask0_1, up_mask2_1
 
-    def forward(self, img0_c, img1_c, img2_c, scale_factor=0.5, refine=True):
+    def forward(self, img0_c, img1_c, img2_c):
         # imgx_c[:, 0:3] linear domain, imgx_c[:, 3:6] ldr domain
-        mask0, mask2 = self.forward_flow_mask(img0_c, img1_c, img2_c, scale_factor=scale_factor)
-        img_hdr_r = self.refinenet(img0_c, img1_c, img2_c, mask0, mask2)
+        img_hdr_r = self.refinenet(img0_c, img1_c, img2_c)
         return img_hdr_r
-    
-    def forward_mask(self, img0_c, img1_c, img2_c, scale_factor=0.5, refine=True):
-        # imgx_c[:, 0:3] linear domain, imgx_c[:, 3:6] ldr domain
-        mask0, mask2 = self.forward_flow_mask(img0_c, img1_c, img2_c, scale_factor=scale_factor)
-        hdr = self.refinenet(img0_c, img1_c, img2_c, mask0, mask2)
-        return hdr,mask0, mask2
+ 
