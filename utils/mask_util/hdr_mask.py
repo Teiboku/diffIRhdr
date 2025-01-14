@@ -31,21 +31,14 @@ def histogram_matching(source, reference):
 def match_brightness(source, reference):
     source = torch.clamp(source, 0, 1)
     reference = torch.clamp(reference, 0, 1)
-    
     source_lab = rgb_to_lab(source)
     reference_lab = rgb_to_lab(reference)
-    
     source_l = source_lab[:, 0:1, :, :]
     reference_l = reference_lab[:, 0:1, :, :]
-    
     matched_l = histogram_matching(source_l, reference_l)
-    
     matched_lab = torch.cat([matched_l, source_lab[:, 1:, :, :]], dim=1)
-    
     matched_rgb = lab_to_rgb(matched_lab)
-    
     matched_rgb = torch.clamp(matched_rgb, 0, 1)
-    
     return matched_rgb
 
 def average_filter(x, kernel_size=3):

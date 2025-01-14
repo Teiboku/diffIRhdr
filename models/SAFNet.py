@@ -97,190 +97,78 @@ class ResBlock(nn.Module):
         out = self.prelu(x + out)
         return out
 
-class MyRefineNet(nn.Module):
-    def __init__(self):
-        super(MyRefineNet, self).__init__()
-        
-        # Encoder
-        self.enc1 = nn.Sequential(
-            convrelu(20, 64),
-            convrelu(64, 64),
-            ResBlock(64)
-        )
-        self.enc2 = nn.Sequential(
-            nn.MaxPool2d(2),
-            convrelu(64, 128),
-            convrelu(128, 128),
-            ResBlock(128)
-        )
-        self.enc3 = nn.Sequential(
-            nn.MaxPool2d(2), 
-            convrelu(128, 256),
-            convrelu(256, 256),
-            ResBlock(256)
-        )
-        self.enc4 = nn.Sequential(
-            nn.MaxPool2d(2),
-            convrelu(256, 512),
-            convrelu(512, 512),
-            ResBlock(512)
-        )
-        
-        # Bridge
-        self.bridge = nn.Sequential(
-            nn.MaxPool2d(2),
-            convrelu(512, 1024),
-            convrelu(1024, 1024),
-            ResBlock(1024),
-            deconv(1024, 512)
-        )
-        
-        # Decoder
-        self.dec4 = nn.Sequential(
-            convrelu(1024, 512),
-            convrelu(512, 512),
-            ResBlock(512),
-            deconv(512, 256)
-        )
-        self.dec3 = nn.Sequential(
-            convrelu(512, 256),
-            convrelu(256, 256),
-            ResBlock(256),
-            deconv(256, 128)
-        )
-        self.dec2 = nn.Sequential(
-            convrelu(256, 128),
-            convrelu(128, 128),
-            ResBlock(128),
-            deconv(128, 64)
-        )
-        self.dec1 = nn.Sequential(
-            convrelu(128, 64),
-            convrelu(64, 64),
-            ResBlock(64),
-            nn.Conv2d(64, 3, kernel_size=3, padding=1)
-        )
-        
-    def forward(self, img0_c, img1_c, img2_c, mask0, mask2):
-        # Check and pad input dimensions to be multiple of 16
-        h, w = img0_c.shape[2:]
-        pad_h = (16 - h % 16) % 16
-        pad_w = (16 - w % 16) % 16
-        
-        if pad_h > 0 or pad_w > 0:
-            # Pad all inputs
-            img0_c = F.pad(img0_c, (0, pad_w, 0, pad_h))
-            img1_c = F.pad(img1_c, (0, pad_w, 0, pad_h))
-            img2_c = F.pad(img2_c, (0, pad_w, 0, pad_h))
-            mask0 = F.pad(mask0, (0, pad_w, 0, pad_h))
-            mask2 = F.pad(mask2, (0, pad_w, 0, pad_h))
-
-        # Concatenate input images with masks
-        x = torch.cat([img0_c, img1_c, img2_c, mask0, mask2], 1)
-        
-        # Encoder
-        enc1 = self.enc1(x)
-        enc2 = self.enc2(enc1)
-        enc3 = self.enc3(enc2)
-        enc4 = self.enc4(enc3)
-        
-        # Bridge
-        bridge = self.bridge(enc4)
-        
-        # Decoder with skip connections
-        dec4 = self.dec4(torch.cat([bridge, enc4], 1))
-        dec3 = self.dec3(torch.cat([dec4, enc3], 1))
-        dec2 = self.dec2(torch.cat([dec3, enc2], 1))
-        dec1 = self.dec1(torch.cat([dec2, enc1], 1))
-        
-        # Residual connection
-        img_hdr_r = torch.clamp(img1_c[:,3:6,:,:] + dec1, 0, 1)
-        
-        # Remove padding if added
-        if pad_h > 0 or pad_w > 0:
-            img_hdr_r = img_hdr_r[:,:,:h,:w]
-            
-        return img_hdr_r
-
-
 class RefineNet(nn.Module):
     def __init__(self):
         super(RefineNet, self).__init__()
-        self.conv0 = nn.Sequential(convrelu(6, 20), convrelu(20, 20))
-        self.conv1 = nn.Sequential(convrelu(6, 40), convrelu(40, 40))
-        self.conv2 = nn.Sequential(convrelu(6, 20), convrelu(20, 20))
-        self.resblock1 = ResBlock(82, 1)
-        self.resblock2 = ResBlock(82, 2)
-        self.resblock3 = ResBlock(82, 4)
-        self.resblock4 = ResBlock(82, 2)
-        self.resblock5 = ResBlock(82, 1)
-        self.conv3 = nn.Conv2d(82, 3, kernel_size=3, stride=1, padding=1, dilation=1, bias=True)
+        self.conv0 = nn.Sequential(convrelu(6, 30), convrelu(30, 40))
+        self.conv1 = nn.Sequential(convrelu(6, 50), convrelu(50, 60))
+        self.conv2 = nn.Sequential(convrelu(6, 30), convrelu(30, 40))
+        self.resblock1 = ResBlock(140, 1)
+        self.resblock2 = ResBlock(140, 2)
+        self.resblock3 = ResBlock(140, 4)
+        self.resblock4 = ResBlock(140, 2)
+        self.resblock5 = ResBlock(140, 1)
+        self.conv3 = nn.Conv2d(140, 3, kernel_size=3, stride=1, padding=1, dilation=1, bias=True)
+      
 
-    def forward(self, img0_c, img1_c, img2_c, mask0, mask2):
+
+    def forward(self, img0_c, img1_c, img2_c):
         img = img1_c[:,3:6,:,:]
         feat0 = self.conv0(img0_c)
         feat1 = self.conv1(img1_c)
         feat2 = self.conv2(img2_c)
 
-        feat = torch.cat([feat0, feat1, feat2,mask0,mask2], 1)
+        feat = torch.cat([feat0, feat1, feat2], 1)
         feat = self.resblock1(feat)
         feat = self.resblock2(feat)
         feat = self.resblock3(feat)
         feat = self.resblock4(feat)
         feat = self.resblock5(feat)
         res = self.conv3(feat)
+ 
+ 
         img_hdr_r = torch.sigmoid(img + res)
-        return img_hdr_r
+        return img_hdr_r  
 
+class MaskRefineNet(nn.Module):
+    def __init__(self):
+        super(MaskRefineNet, self).__init__()
+        self.conv0 = nn.Sequential(convrelu(6, 30), convrelu(30, 40))
+        self.conv1 = nn.Sequential(convrelu(9, 50), convrelu(50, 60))
+        self.conv2 = nn.Sequential(convrelu(6, 30), convrelu(30, 40))
+        self.resblock1 = ResBlock(140, 1)
+        self.resblock2 = ResBlock(140, 2)
+        self.resblock3 = ResBlock(140, 4)
+        self.resblock4 = ResBlock(140, 2)
+        self.resblock5 = ResBlock(140, 1)
+        self.conv3 = nn.Conv2d(140, 1, kernel_size=3, stride=1, padding=1, dilation=1, bias=True)
+      
+    def forward(self, img0_c, img1_c, img2_c,img_hdr_r):
+        img = img1_c[:,3:6,:,:]
+        feat0 = self.conv0(img0_c)
+        feat1 = self.conv1(torch.cat([img1_c,img_hdr_r],dim=1))
+        feat2 = self.conv2(img2_c)
+
+        feat = torch.cat([feat0, feat1, feat2], 1)
+        feat = self.resblock1(feat)
+        feat = self.resblock2(feat)
+        feat = self.resblock3(feat)
+        feat = self.resblock4(feat)
+        feat = self.resblock5(feat)
+        feat = self.conv3(feat)
+        scale_factor = 20.0 
+        mask = torch.sigmoid(scale_factor * feat)
+        return mask
 
 class SAFNet(nn.Module):
     def __init__(self):
         super(SAFNet, self).__init__()
-        self.encoder = Encoder()
-        self.decoder = Decoder()
+        self.mask_refinenet = MaskRefineNet()
         self.refinenet = RefineNet()
+         
+    def forward(self, img0_c, img1_c, img2_c):
+        img_hdr_r    = self.refinenet(img0_c, img1_c, img2_c)
+        mask = self.mask_refinenet(img0_c, img1_c, img2_c,img_hdr_r)
 
-    def forward_flow_mask(self, img0_c, img1_c, img2_c, scale_factor=0.5):
-        h, w = img1_c.shape[-2:]
-        org_size = (int(h), int(w))
-        input_size = (int(div_size * np.ceil(h * scale_factor / div_size)), int(div_size * np.ceil(w * scale_factor / div_size)))
-
-        if input_size != org_size:
-            img0_c = F.interpolate(img0_c, size=input_size, mode='bilinear', align_corners=False)
-            img1_c = F.interpolate(img1_c, size=input_size, mode='bilinear', align_corners=False)
-            img2_c = F.interpolate(img2_c, size=input_size, mode='bilinear', align_corners=False)
-
-        f0_1, f0_2, f0_3, f0_4 = self.encoder(img0_c)
-        f1_1, f1_2, f1_3, f1_4 = self.encoder(img1_c)
-        f2_1, f2_2, f2_3, f2_4 = self.encoder(img2_c)
-
-        up_mask0_5 = torch.zeros_like(f1_4[:, 0:1, :, :])
-        up_mask2_5 = torch.zeros_like(f1_4[:, 0:1, :, :])
-
-        up_mask0_4, up_mask2_4 = self.decoder(f0_4, f1_4, f2_4, up_mask0_5, up_mask2_5)
-        up_mask0_3, up_mask2_3 = self.decoder(f0_3, f1_3, f2_3, up_mask0_4, up_mask2_4)
-        up_mask0_2, up_mask2_2 = self.decoder(f0_2, f1_2, f2_2, up_mask0_3, up_mask2_3)
-        up_mask0_1, up_mask2_1 = self.decoder(f0_1, f1_1, f2_1, up_mask0_2, up_mask2_2)
-
-        if input_size != org_size:
-            scale_h = org_size[0] / input_size[0]
-            scale_w = org_size[1] / input_size[1]
-            up_mask0_1 = F.interpolate(up_mask0_1, size=org_size, mode='bilinear', align_corners=False)
-            up_mask2_1 = F.interpolate(up_mask2_1, size=org_size, mode='bilinear', align_corners=False)
-
-        up_mask0_1 = torch.sigmoid(up_mask0_1)
-        up_mask2_1 = torch.sigmoid(up_mask2_1)
-
-        return up_mask0_1, up_mask2_1
-
-    def forward(self, img0_c, img1_c, img2_c, scale_factor=0.5, refine=True):
-        # imgx_c[:, 0:3] linear domain, imgx_c[:, 3:6] ldr domain
-        mask0, mask2 = self.forward_flow_mask(img0_c, img1_c, img2_c, scale_factor=scale_factor)
-        img_hdr_r = self.refinenet(img0_c, img1_c, img2_c, mask0, mask2)
-        return img_hdr_r
+        return img_hdr_r ,mask
     
-    def forward_mask(self, img0_c, img1_c, img2_c, scale_factor=0.5, refine=True):
-        # imgx_c[:, 0:3] linear domain, imgx_c[:, 3:6] ldr domain
-        mask0, mask2 = self.forward_flow_mask(img0_c, img1_c, img2_c, scale_factor=scale_factor)
-        hdr = self.refinenet(img0_c, img1_c, img2_c, mask0, mask2)
-        return hdr,mask0, mask2

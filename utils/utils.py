@@ -124,6 +124,26 @@ def calculate_psnr(img1, img2):
     psnr = -10 * torch.log10(((img1 - img2) * (img1 - img2)).mean())
     return psnr
 
+# 生成两张图像差异的灰度图
+def generate_diff_map(img1, img2):
+    # Ensure both inputs are on the same device
+    device = img1.device
+    img2 = img2.to(device)
+    
+    # Calculate absolute difference between images
+    diff = torch.abs(img1 - img2)
+    
+    # If input is multi-channel, convert to grayscale by averaging
+    if diff.shape[1] > 1:
+        diff = diff.mean(dim=1, keepdim=True)
+        
+    # Convert to binary mask using threshold
+    threshold = 0.02
+    diff = (diff > threshold).float()
+    
+    return diff
+
+
 def tone_mapping(hdr_img):
     """
     Reinhard tone mapping for HDR images

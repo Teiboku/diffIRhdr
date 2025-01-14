@@ -6,8 +6,20 @@ import traceback
 from matplotlib import pyplot as plt
 import requests
 
-from inpainting.saicinpainting.evaluation.utils import move_to_device
-from inpainting.saicinpainting.evaluation.refinement import refine_predict
+# Add project root path to python path
+import os
+import sys
+
+# Get the absolute path of the project root directory
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+# Add project root to python path if not already there
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+
+
+
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
@@ -18,6 +30,7 @@ import cv2
 import hydra
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import tqdm
 import yaml
@@ -29,6 +42,18 @@ from inpainting.saicinpainting.training.trainers import load_checkpoint
 from inpainting.saicinpainting.utils import register_debug_signal_handlers
 
 LOGGER = logging.getLogger(__name__)
+
+def move_to_device(obj, device):
+    if isinstance(obj, nn.Module):
+        return obj.to(device)
+    if torch.is_tensor(obj):
+        return obj.to(device)
+    if isinstance(obj, (tuple, list)):
+        return [move_to_device(el, device) for el in obj]
+    if isinstance(obj, dict):
+        return {name: move_to_device(val, device) for name, val in obj.items()}
+    raise ValueError(f'Unexpected type {type(obj)}')
+
 
 def load_image(fname, mode='RGB', return_orig=False):
     # 读取PNG图像
@@ -95,8 +120,8 @@ def get_inpaint(image: torch.Tensor, mask: torch.Tensor,unpad_to_size: tuple = N
     
 if __name__ == '__main__':
     # Load sample image from Hugging Face
-    image_path = "/root/code/hdr/SAFNet/wandb/latest-run/files/media/images/val_pred_8_16_a968a3c0cefb11819762.png"
-    gt_path = "/root/code/hdr/SAFNet/wandb/latest-run/files/media/images/val_gt_8_16_b59f55abd6aa5e38f192.png"
+    image_path = "/root/autodl-tmp/diffIRhdr/wandb/latest-run/files/media/images/predicted_image_17002_91f75703ce28e8c4240a.png"
+    gt_path = "/root/autodl-tmp/diffIRhdr/wandb/latest-run/files/media/images/ground_truth_image_17002_d956d6271e818c6ad1bd.png"
     img = load_image(image_path)
     gt = load_image(gt_path)
     

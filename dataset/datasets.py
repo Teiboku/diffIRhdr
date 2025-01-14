@@ -39,7 +39,7 @@ class HDRDataset(Dataset):
         else:
             self.patch_size = None
         # Set data subdirectory
-        self.data_dir = os.path.join(root_dir, 'train' if is_train else 'test')
+        self.data_dir = os.path.join(root_dir, 'Training' if is_train else 'Test')
         
         sequences = sorted(os.listdir(self.data_dir))
         print(len(sequences))
@@ -101,17 +101,23 @@ class HDRDataset(Dataset):
             imgs_ldr[i] = np.transpose(imgs_ldr[i], (2, 0, 1))
         gt = np.transpose(gt.copy(), (2, 0, 1))
 
-        # Apply transforms if specified
         if self.patch_size is not None:
-            # 为整个样本生成相同的随机参数
             h, w = imgs_lin[0].shape[1:]
             top = random.randint(0, h - self.patch_size)
             left = random.randint(0, w - self.patch_size)
-            # 对所有图像应用相同的变换
             for i in range(3):
-                # Convert numpy arrays to PIL Images for transforms
-                imgs_lin[i] = TF.crop(torch.from_numpy(imgs_lin[i]), top, left, self.patch_size, self.patch_size).numpy()
-                imgs_ldr[i] = TF.crop(torch.from_numpy(imgs_ldr[i]), top, left, self.patch_size, self.patch_size).numpy()
-            gt = TF.crop(torch.from_numpy(gt), top, left, self.patch_size, self.patch_size).numpy()
+                imgs_lin[i] = imgs_lin[i][:, top:top+self.patch_size, left:left+self.patch_size]
+                imgs_ldr[i] = imgs_ldr[i][:, top:top+self.patch_size, left:left+self.patch_size]
+            gt = gt[:, top:top+self.patch_size, left:left+self.patch_size]
   
+  
+        # Random channel order reversal augmentation
+        if self.is_train and random.random() < 0.3:
+            # Reverse RGB channel order for all images
+            for i in range(3):
+                imgs_lin[i] = imgs_lin[i][::-1, :, :].copy()  # 添加 .copy()
+                imgs_ldr[i] = imgs_ldr[i][::-1, :, :].copy()  # 添加 .copy()
+            gt = gt[::-1, :, :].copy()  # 添加 .copy()
         return imgs_lin, imgs_ldr, expos, gt
+
+         

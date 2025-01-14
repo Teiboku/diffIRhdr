@@ -1,78 +1,63 @@
 import os
 import shutil
-import time
-import math
 import numpy as np
 import cv2
 import torch
 from torch.utils.data import DataLoader
 from models.SAFNet import SAFNet
 from dataset.datasets import HDRDataset
-from utils.utils import prepare_input_images, range_compressor, calculate_psnr
-import torch.nn.functional as F
-import matplotlib.pyplot as plt
+from utils.utils import prepare_input_images, range_compressor, calculate_psnr, generate_diff_map, tone_mapping
 
-dataset_eval = HDRDataset(root_dir='/root/code/hdr/kata17',is_train=False)
-dataloader_eval = DataLoader(dataset_eval, batch_size=1, shuffle=False, num_workers=1)
-model = SAFNet().cuda().eval()
-model.load_state_dict(torch.load('/root/code/hdr/SAFNet/checkpoints/SAFNet_epoch_1980.pth'))
-
+# 初始化
 test_results_path = './img_hdr_pred_siggraph17'
-
 if os.path.exists(test_results_path):
     shutil.rmtree(test_results_path)
-    
-if not os.path.exists(test_results_path):
-    os.makedirs(test_results_path)
+os.makedirs(test_results_path)
 
-psnr_l_list = []
-psnr_m_list = []
+# 加载数据和模型
+dataset_eval = HDRDataset(root_dir='./dataset/ka17', is_train=False)
+dataloader_eval = DataLoader(dataset_eval, batch_size=1, shuffle=False, num_workers=1)
+model = SAFNet().cuda().eval()
+state_dict = torch.load('./checkpoints/sota.pth')
+model.load_state_dict({k.replace("_orig_mod.", ""): v for k, v in state_dict.items()})
 
+psnr_l_list, psnr_m_list = [], []
+
+# 评估循环
 for i, (imgs_lin, imgs_ldr, expos, img_hdr_gt) in enumerate(dataloader_eval):
+    # 准备输入
     img0_c, img1_c, img2_c = prepare_input_images(imgs_lin, imgs_ldr, "cuda")
-    inf = torch.cat([img0_c,img1_c,img2_c],1)
-    print(inf.shape)
-    # Pad the width dimension from 1500 to 1504
-
+    
+    # 模型推理
     with torch.no_grad():
-        img_hdr_m,mask0, mask2 = model.forward_mask( img0_c, img1_c, img2_c)
+        img_hdr_m = model(img0_c, img1_c, img2_c)
+    
+    # 计算PSNR
     psnr_l = calculate_psnr(img_hdr_m.cpu(), img_hdr_gt.cpu()).cpu()
-
     img_hdr_r_m = range_compressor(img_hdr_m)
     img_hdr_gt_m = range_compressor(img_hdr_gt)
     psnr_m = calculate_psnr(img_hdr_r_m.cpu(), img_hdr_gt_m.cpu()).cpu()
-
     psnr_l_list.append(psnr_l)
     psnr_m_list.append(psnr_m)
+    
+    print(f'SIGGRAPH17 Test {i+1:03d}: PSNR_l={psnr_l:.3f} PSNR_m={psnr_m:.3f}')
+    
+    # 保存结果
+    # 差异图
+    diff_map = generate_diff_map(img_hdr_r_m, img_hdr_gt_m)
+    diff_map_bw = 255 - (diff_map.data.cpu().squeeze(0).permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+    cv2.imwrite(os.path.join(test_results_path, f'{i+1:03d}_diff_bw.png'), diff_map_bw)
+    
+    # HDR和LDR图像
+    img_hdr_r_np = img_hdr_m.data.cpu().squeeze(0).permute(1, 2, 0).numpy()
+    cv2.imwrite(os.path.join(test_results_path, f'{i+1:03d}.hdr'), img_hdr_r_np[:, :, ::-1])
+    cv2.imwrite(os.path.join(test_results_path, f'{i+1:03d}.png'), 
+                (tone_mapping(img_hdr_r_np)[:, :, ::-1] * 255).astype(np.uint8))
+    
+    # Ground truth
+    img_hdr_gt_np = img_hdr_gt.data.cpu().squeeze(0).permute(1, 2, 0).numpy()
+    cv2.imwrite(os.path.join(test_results_path, f'{i+1:03d}_gt.png'),
+                (tone_mapping(img_hdr_gt_np)[:, :, ::-1] * 255).astype(np.uint8))
 
-    print('SIGGRAPH17 Test {:03d}: PSNR_l={:.3f} PSNR_m={:.3f}'.format(i+1, psnr_l, psnr_m))
-
- 
-    img_hdr_r_np = img_hdr_m[0].data.cpu().permute(1, 2, 0).numpy()
-    cv2.imwrite(os.path.join(test_results_path, '{:03d}.hdr'.format(i+1)), img_hdr_r_np[:, :, ::-1])
-    
-    # Convert masks to histograms
-    mask0_np = mask0[0,0].data.cpu().numpy().flatten()  # Flatten to 1D array
-    mask2_np = mask2[0,0].data.cpu().numpy().flatten()
-    
-    # Create histograms
-    plt.figure(figsize=(10, 4))
-    
-    # Plot mask0 histogram
-    plt.subplot(1, 2, 1)
-    plt.hist(mask0_np, bins=50, range=(0, 1), density=True)
-    plt.title('Mask0 Value Distribution')
-    plt.xlabel('Mask Value')
-    plt.ylabel('Density')
-    
-    # Plot mask2 histogram
-    plt.subplot(1, 2, 2)
-    plt.hist(mask2_np, bins=50, range=(0, 1), density=True)
-    plt.title('Mask2 Value Distribution')
-    plt.xlabel('Mask Value')
-    plt.ylabel('Density')
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(test_results_path, '{:03d}_mask_dist.png'.format(i+1)))
-    plt.close()
-print('SIGGRAPH17 Test Average: PSNR_l={:.3f} PSNR_m={:.3f}'.format(np.array(psnr_l_list).mean(), np.array(psnr_m_list).mean()))
+# 打印平均PSNR
+print(f'SIGGRAPH17 Test Average: PSNR_l={np.array(psnr_l_list).mean():.3f} PSNR_m={np.array(psnr_m_list).mean():.3f}')
